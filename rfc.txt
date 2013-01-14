@@ -1,0 +1,257 @@
+A Random Group of Engineers (ARGOE)                          Alex Koppel
+Request for Comments: 1                                      Independent
+Category: Informational                                        JT Archie
+                                                                 Pivotal
+                                                             Chad Fowler
+                                                           Living Social
+                                                         Hans Hasselbach
+                                                            Aditya Yadav
+                                                           6Wunderkinder
+                                                            January 2013
+
+
+                              Batch API
+
+Abstract
+
+   This document describes a mechanism to batch HTTP requests together to
+   reduce network overhead and (optionally) allow parallel processing.
+   This is also a chance to try our hands at writing an IETF-style document.
+
+Status of This Memo
+
+   This document is not an Internet Engineering Task Force RFC.
+
+Copyright Notice
+
+   Copyright (c) 2013 Alex Koppel. All rights reserved.
+
+1.  Introduction
+
+   This document describes a system for providing a RESTful batch API.
+   In this system, batch requests are simply collections of regular REST calls,
+   whose results are returned as an equivalent collection of data.
+
+   By specifying the behavior of a Batch API system, this document aims to ensure that both the server components and their related clients can be implemented in different languages and frameworks, without sacrificing compatibility between different implementations (each of which may be more or less appropriate in a given situation).
+
+1.1. Acknowledgements
+
+   This is heavily inspired by Facebook's Batch API, as described in [Facebook-Batch API] http://developers.facebook.com/docs/reference/api/batch/.
+
+2.  Batch API Purpose
+
+   Batch APIs, though unRESTful, are useful for reducing HTTP overhead
+   by combining requests; this is particularly valuable for mobile clients,
+   which may generate groups of offline actions and which desire to
+   reduce battery consumption while connected by making fewer, better-compressed
+   requests.
+
+2.1.  Benefits of a Batch API
+
+   All types of batch API provide certain benefits:
+
+   * Less overhead - clients need to make fewer requests to perform the same
+     number of operations.
+   * Parallelizable - subject to dependency management, requests can be run in
+     parallel, providing significant savings.  Clients would be able to explicitly
+     specify dependencies between operations (or simply to run all sequentially).
+
+   Additionally, some implementations may be able to achieve further optimizations,
+   such as:
+
+   * Reuse of state - user authentication, request stack processing, and
+     similar processing may in some versions only need to be done once, regardless
+     of the number of operations to be processed.
+
+3.  Approaches and Alternatives
+
+3.1.  Design Options
+
+   There are two main approaches to writing batch APIs:
+
+   * A limited, specialized batch endpoint (or endpoints), which usually handles
+     updates and creates.  DHH sketched out such a bulk update/create endpoint
+     for Rails 3.2 in [DHH-Proposal].
+   * A general-purpose RESTful API that can handle anything in your application,
+     a la the Facebook Batch API.
+
+3.2.  Benefits of the Chosen Design
+
+   This RFC describges a system using the second approach, which minimizes code duplication and complexity. Rather
+   than have two systems that manage resources (or a more complicated one that
+   can handle both batch and individual requests), the Batch API system described in this RFC simply routes requests to the destination application as always.
+
+   This solution has several specific benefits:
+
+   * Less complexity - non-batch endpoints don't need any extra code, which means
+     the application developer must maintain less code.
+   * Complete flexibility - as new features are added to an application,
+     they become immediately and automatically available via the Batch API.
+   * More RESTful - as individual operations are simply actions on RESTful
+     resources, preserving an important characteristic of APIs designed along that pattern.
+
+3.3.  Downsides to the Chosen Design
+
+   This generalized approach suffers one downside compared to a
+   second specialized endpoint:
+
+   * Reduced ability to optimize - each request
+     will be treated in isolation, which makes it harder to optimize the
+     underlying database queries via more efficient (and complicated) SQL logic.
+     (Since the main pain point
+     this approach addresses is at the HTTP connection layer, I submit we can
+     accept this.)
+
+3.4.  Insufficiency of HTTP Pipelining
+
+   HTTP pipelining is an awesome and promising technology, and would provide a
+   simple and effortless way to parallel process many requests; however, using
+   pipelining raised several issues, which can be blockers for many applications:
+
+   * Lack of browser support: as described in [Pipelining-Browser Support], a number of key browsers do not yet support HTTP pipelining (or have it disabled by default).  This will of course change in time, but for now this takes pipelining out of consideration.  (There a similar but more minor issue with many web proxies, as describged in [Pipelining-Proxies].
+   * The HTTP pipelining specification states that non-idempotent requests (e.g.
+   POST and in some descriptions PUT, see [Pipelining-POST] and [Pipelining-PUT])
+   shouldn't be made via pipelining.  Though some server
+   implementations may support POST requests by putting all subsequent requests on
+   hold until it's done [citation needed], for applications that submit a lot of POSTs this raised concerns as well.
+
+4.  How It Works
+
+   The Batch API mechanism is well illustrated by the following example:
+
+   If the following payload is sent as a JSON-encoded POST body:
+
+   {
+     ops: [
+       {method: "get",    url: "/patrons"},
+       {method: "post",   url: "/orders/new",  params: {dish_id: 123}},
+       {method: "get",    url: "/oh/no/error", headers: {break: "fast"}},
+       {method: "delete", url: "/patrons/456"}
+     ],
+     mode: "sequential"
+   }
+
+   The following response may be returned:
+
+   {
+     results: [
+       {status: 200, body: [{id: 1, name: "Jim-Bob"}, ...], headers: {}},
+       {status: 201, body: {id: 4, dish_name: "Spicy Crab Legs"}, headers: {}},
+       {status: 500, body: {error: {oh: "noes!"}}, headers: {Problem: "woops"}},
+       {status: 200, body: null, headers: {}}}
+     ]
+   }
+
+4.1.  Requests
+
+   Each batch request must be a JSON hash, composed of keys from the following list:
+
+   * ops (Array, required) - one or more individual requests (see 4.2. Operations below)
+     that will be processed.
+   * mode (String, optional) - how to execute the request, based on whether the client
+     desires to manage dependencies itself.  See Section 5 below.
+
+4.2.  Operations
+
+   Each request in the batch (henceforth referred to as an "operation") describes the same features any HTTP request would include:
+
+   * url (String, required) - the API endpoint to hit, formatted exactly it would be for a regular
+   REST API request, leading / and all.
+   * method (String, optional) - what type of request to make -- GET, POST, PUT, etc.  If no method is supplied, GET is assumed.
+   * args (Hash, optional) - a hash of arguments to the API. This can be used for both GET and PUT/POST/PATCH requests.
+   * headers (Hash, optional) - a hash of request-specific headers. Any headers sent in the
+   request will be included as well, with operation-specific headers taking
+   precendence. (optional)
+
+   Several additional parameters may be provided:
+
+   * name (String, optional) - an identifier for this request that can be used for
+     dependency management.
+   * requires (String or Array, optional) - one or more identifiers for previously-specified request that
+     must be executed before this operation can begin.  (See name above.)
+   * silent (Boolean, optional) - whether to return a response for this request. This can be
+     set to false to reduce data transferred -- for instance, if your application makes several PUT/POST requests before executing a GET at the end.
+
+4.3.  Responses
+
+   The Batch API will always return a 200, with a JSON body containing the
+   individual responses under the "results" key.  Those responses, in turn,
+   contain the same main components of any HTTP response:
+
+   * _status_ - the HTTP status (200, 201, 400, etc.)
+   * _body_ - the rendered body
+   * _headers_ - any response headers
+
+4.4.  Errors
+
+   Errors in individual Batch API requests will be returned inline, with the
+   same status code and body they would return as individual requests.
+
+   If the Batch API itself returns a non-200 status code, that indicates a global
+   problem, which will be described in the JSON-encoded response body.  The
+   error will contain the following keys:
+
+   * message - a description of the error.
+
+   Other implementation-specific information (such as backtraces and other
+   technical information) may also be provided.
+
+   The following error conditions must be handled by a Batch API implementation:
+
+   * No operations provided - the ops key is missing or specifies an empty array.
+   * Too many operations provided - if an operation limit is specified (see
+     Section 6) and too many operations are requested.
+   * Malformed operation - a required parameter, such as URL, is not provided.
+
+   Other implementation-specific errors may also be returned.
+
+5.  Execution
+
+   Operations may be executed either sequentially or in parallel, depending
+   on the value of the mode parameter (see Section 4).  Batch API implementations MAY choose to implement only one of the two modes (see section 5.3).
+
+   There are two supported values for the mode parameter:
+
+   * sequential
+   * parallel
+
+   If no mode value is provided (and both are available), operations will be executed in parallel.
+
+5.1.  Sequential
+
+   Clients that do not wish to manage potentially-complex dependencies
+   between requests can specify that operations should be processed
+   sequentially.
+
+   In this mode, the Batch API implementation must process
+   each request only after the last non-idempotent (e.g. PUT, POST, DELETE,
+   PATCH) request has completed.  Individual Batch API implementations may choose to
+   group consecutive idempotent requests (GET and HEAD) together for parallel
+   processing, as those should not change application state; however, the
+   implementation must specify this in its documentation.
+
+5.2.  Parallel
+
+   In this mode, all operations will be executed in parallel unless they
+   they specify the requires parameter.  These operations will be executed as
+   soon as all their prerequisites are fulfilled.
+
+5.3.  Implementation of only one mode
+
+   Batch API implementations MAY not implement both processing modes.
+   In this case, the implementation MUST:
+
+   * Specify the available mode in its documentation.
+   * Require the mode parameter be present and set to the available value (to avoid issues if the implementation adds the other mode).
+   * Raise an immediate error if the mode parameter is not present.
+
+6.  Configuration options
+
+References
+
+[Pipelining-Browser Support](http://en.wikipedia.org/wiki/HTTP_pipelining#Implementation_in_web_browsers):
+[Pipelining-POST Requests] http://en.wikipedia.org/wiki/HTTP_pipelining
+[Pipelining-PUT Requests] http://www-archive.mozilla.org/projects/netlib/http/pipelining-faq.html
+[Pipelining-Proxies] http://en.wikipedia.org/wiki/HTTP_pipelining#Implementation_in_web_proxies
+[DHH-Proposal] https://gist.github.com/981520
+[Facebook-Batch API] http://developers.facebook.com/docs/reference/api/batch/
