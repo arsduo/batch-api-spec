@@ -1,13 +1,13 @@
-A Random Group of Engineers (ARGOE)                          Alex Koppel
-Request for Comments: 1                                      Independent
-Category: Informational                                        JT Archie
-                                                                 Pivotal
-                                                             Chad Fowler
-                                                           Living Social
-                                                         Hans Hasselbach
-                                                            Aditya Yadav
-                                                           6Wunderkinder
-                                                            January 2013
+A Random Group of Engineers (ARGOE)                                  Alex Koppel
+Request for Comments: 1                                              Independent
+Category: Informational                                                JT Archie
+                                                                         Pivotal
+                                                                     Chad Fowler
+                                                                   Living Social
+                                                                 Hans Hasselbach
+                                                                    Aditya Yadav
+                                                                   6Wunderkinder
+                                                                    January 2013
 
 
                   Batch API
