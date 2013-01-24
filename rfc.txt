@@ -185,7 +185,7 @@ Copyright Notice
    request. This can be set to false to reduce data transferred -- for
    instance, if your application makes several PUT/POST requests before
    executing a GET at the end.  If this is set to true, the Batch API server
-   MUST return a null result at the appropriate point in the results array
+   MUST return a null result at the appropriate index in the results array
    to ensure that subsequent operations are ordered properly relative to the
    requests array.
 
