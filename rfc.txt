@@ -204,6 +204,10 @@ Copyright Notice
    * _body_ - the rendered body
    * _headers_ - any response headers
 
+   The body -- if it contains JSON data -- should be returned unencoded by
+   default (so that clients have immediate access to the body data after
+   decoding the response payload).
+
 4.4.  Errors
 
    Errors in individual Batch API requests will be returned inline, with the
