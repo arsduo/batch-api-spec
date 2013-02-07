@@ -132,24 +132,23 @@ Copyright Notice
    If the following payload is sent as a JSON-encoded POST body:
 
    {
-   ops: [
-     {method: "get",    url: "/patrons"},
-     {method: "post",   url: "/orders/new",  params: {dish_id: 123}},
-     {method: "get",    url: "/oh/no/error", headers: {break: "fast"}},
-     {method: "delete", url: "/patrons/456"}
-   ],
-   mode: "sequential"
+      ops: [
+          {method: "get",    url: "/patrons"},
+          {method: "post",   url: "/orders/new",  params: {dish_id: 123}},
+          {method: "get",    url: "/ohno/error", headers: {break: "fast"}},
+          {method: "delete", url: "/patrons/456"}
+      ]
    }
 
    The following response may be returned:
 
    {
-   results: [
-     {status: 200, body: [{id: 1, name: "Jim-Bob"}, ...], headers: {}},
-     {status: 201, body: {id: 4, dish_name: "Spicy Crab Legs"}, headers: {}},
-     {status: 500, body: {error: {oh: "noes!"}}, headers: {Problem: "woops"}},
-     {status: 200, body: null, headers: {}}}
-   ]
+      results: [
+         {status: 200, body: [{id: 1, name: "Jim-Bob"}, ...], headers: {}},
+         {status: 201, body: {id: 4, dish: "Spicy Crab Legs"}, headers: {}},
+         {status: 500, body: {error: {oh: "noes!"}}, headers: {code: "3"}},
+         {status: 200, body: null, headers: {}}}
+      ]
    }
 
 4.1.  Requests
@@ -180,22 +179,34 @@ Copyright Notice
    * name (String, optional) - an identifier for this request that can be used
    for dependency management.
    * requires (String or Array, optional) - one or more identifiers for
-   previously-specified request that must be executed before this operation can
-   begin.  (See name above.)
+   previously-specified request that must be executed before this operation
+   can begin.  (See name above.)
    * silent (Boolean, optional) - whether to return a response for this
    request. This can be set to false to reduce data transferred -- for
    instance, if your application makes several PUT/POST requests before
-   executing a GET at the end.
+   executing a GET at the end.  If this is set to true, the Batch API server
+   MUST return a null result at the appropriate index in the results array
+   to ensure that subsequent operations are ordered properly relative to the
+   requests array.
 
 4.3.  Responses
 
    The Batch API will always return a 200, with a JSON body containing the
-   individual responses under the "results" key.  Those responses, in turn,
-   contain the same main components of any HTTP response:
+   individual responses under the "results" key.  The server will return
+   an array of responses ordered such that each request and its associated
+   response have the same index (e.g. requests [A, B, C] will generate
+   responses [A', B', C']).
+
+   Each response, in turn, will be a hash containing the main
+   components of an HTTP response:
 
    * _status_ - the HTTP status (200, 201, 400, etc.)
    * _body_ - the rendered body
    * _headers_ - any response headers
+
+   The body -- if it contains JSON data -- should be returned unencoded by
+   default (so that clients have immediate access to the body data after
+   decoding the response payload).
 
 4.4.  Errors
 
@@ -252,12 +263,15 @@ Copyright Notice
 
    In this mode, all operations will be executed in parallel unless they they
    specify the requires parameter.  These operations will be executed as soon
-   as all their prerequisites are fulfilled.
+   as all their prerequisites are fulfilled.  Responses will be returned in
+   the same order as the corresponding original requests (just as if they had
+   been executed in sequence), regardless of the order in which requests
+   actually finish executing on the server.
 
 5.3.  Implementations with only one mode
 
-   Batch API implementations MAY not implement both processing modes.  In this
-   case, the implementation MUST:
+   Batch API implementations MAY choose not implement both processing modes.
+   In this case, the implementation MUST:
 
    * Specify the available mode in its documentation.
    * Require the mode parameter be present and set to the available value (to
